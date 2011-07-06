@@ -9,6 +9,7 @@
 #!/usr/bin/env python
 
 import re, pprint
+from collections import OrderedDict
 
 class StairGenerator():
     vmf_filename = ""
@@ -28,7 +29,7 @@ class StairGenerator():
 
     def dict_from_vmf(self, vmf_list):
         """Turns vmf_list into a python dict woo"""
-        output = {}
+        output = OrderedDict()
         # stack of the current block object to be adding keyvalues to
         cur_obj = []
         cur_obj.append(output)
@@ -39,7 +40,7 @@ class StairGenerator():
             elif token[0] == '}': # end of a block
                 cur_obj.pop()
             elif token[0] != '{': # start of a block
-                new_obj = {}
+                new_obj = OrderedDict()
                 # to figure out where to put the new object if duplicates
                 # if there are multiple blocks with same name, we need to store
                 # all of them in a list under that one dict key
@@ -55,10 +56,7 @@ class StairGenerator():
 
     def find_templates(self):
         """Finds stairs template brushes in vmf"""
-        for item in self.vmf_list:
-            print item
-        self.pp.pprint(self.dict_from_vmf(self.vmf_list))
-
+        vmf = self.dict_from_vmf(self.vmf_list)
 
 def main():
     generator = StairGenerator("stairstest.vmf")
