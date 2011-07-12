@@ -1,6 +1,6 @@
 #-------------------------------------------------------------------------------
 # Name:        StairGenerator
-# Purpose:     Generates stairs lol
+# Purpose:     Generates stairs and doesn't afraid of anything
 #
 # Author:      Lennart
 #
@@ -13,7 +13,8 @@ from collections import OrderedDict
 
 class StairGenerator():
     """Functions for easy creation of stairs in Valve map files. Loads a VMF,
-    generates stairs from template brushes in the VMF, and can resave the VMF."""
+    generates stairs from template brushes in the VMF, and can resave the
+    VMF."""
 
     vmf_filename = ""
     vmf_data = ""
@@ -79,12 +80,55 @@ class StairGenerator():
         return output
 
     def find_templates(self):
-        """Finds stairs template brushes in vmf"""
-        # TODO: fully implement find_templates
+        """Finds stairs template brushes in vmf, checks based on orientation and
+        texturing"""
+        templates = []
+        solids = self.vmf_dict['world']['solid']
+        if type(solids) is not list:
+            raise Exception("Can't deal with single-brush vmfs yet")
+        for solid in solids:
+            materials = []
+            all_sides_ortho = True
+            for side in solid['side']:
+                materials.append(side['material'])
+                if not self.side_ortho(side):
+                    all_sides_ortho = False
+            if self.is_template_textured(materials) and all_sides_ortho:
+                templates.append(solid)
+        return templates
+
+    def is_template_textured(self, texture_list):
+        """Takes a list of textures and determines if a solid is textured like
+        a template brush"""
+        skip_count, stairs_count = 0, 0
+        for tex in texture_list:
+            if tex == 'TOOLS/TOOLSSKIP':
+                skip_count += 1
+            elif tex == 'SIGNS/STAIRS_RED':
+                stairs_count += 1
+            else:
+                return False
+        # Only return for brushes textured all in skip except for one in
+        # stairs_red
+        return (skip_count, stairs_count) == (5, 1)
+
+    def side_ortho(self, side):
+        """Returns whether all points in a side lie in an orthogonal plane"""
+        # turn into list of coordinate tuples
+        coords = [tuple(coord.split(' ')) for coord in
+            side['plane'][0:-1].replace('(', '').split(') ')]
+        all_same = [0]*3
+        # all three points lie in axial-oriented orthogonal plane if one coord
+        # is same for all points
+        for i in range(0, 3):
+            all_same[i] = (coords[0][i] == coords[1][i]
+                and coords[0][i] == coords[2][i])
+        return sum(all_same)
+
 
 def main():
-    generator = StairGenerator("stairstest.vmf")
-    generator.write_vmf('stairswrite.vmf')
+    generator = StairGenerator("anglestest.vmf")
+    generator.find_templates()
 
 if __name__ == '__main__':
     main()
