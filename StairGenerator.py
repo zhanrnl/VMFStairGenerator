@@ -8,7 +8,7 @@
 #-------------------------------------------------------------------------------
 #!/usr/bin/env python
 
-from numpy import array, cross
+from numpy import array, cross, matrix, identity
 from collections import OrderedDict
 
 class StairGenerator():
@@ -21,7 +21,8 @@ class StairGenerator():
     vmf_dict = OrderedDict()
 
     # default stair params (not used yet, we're only making ramps atm)
-    step_size = 12, 8 # length, height
+    step_length = 12
+    step_height = 8 # length, height
     trim_width = 2
     construction = 0 # 0 = solid, 1 = hanging, 2 = hanging step
 
@@ -114,124 +115,116 @@ class StairGenerator():
             self.add_normals(sides)
 
             print "Finding coordinate bounds of template brush"
-            bounds, orientation = self.get_bounds(sides)
-
-            solids = self.vmf_dict['world']['solid']
+            reg_point, dims, orientation = self.get_reg_point_dims(sides)
 
             # create new ordered dict for ramp
             print "Creating ramp"
-            self.create_ramp(bounds, orientation)
+            self.create_ramp(reg_point, dims, orientation)
 
             # delete template, so we can write the ramp brush in place
             print "Removing template brush"
+            solids = self.vmf_dict['world']['solid']
             solids.remove(template)
 
-            print "Saving VMF"
-            self.write_vmf('stairswrite.vmf')
+        print "\nSaving VMF"
+        self.write_vmf('stairswrite.vmf')
 
         print "\nAll done."
 
-    def create_ramp(self, bounds, orientation):
+    def create_ramp(self, reg_point, dims, orientation):
         solids = self.vmf_dict['world']['solid']
-        ##print solids[1]
 
         max_solid_id = max([int(solid['id']) for solid in solids])
         # Yo dawg, I herd you like list comprehensions
         max_side_id = max([max([int(side['id']) for side in sides]) for sides
             in [solid['side'] for solid in solids]])
-        next_side_id = max_side_id
 
-        front, back, left, right, top, bottom = bounds
+        length, width, height = dims
+        # ignore length to get stairs of a given slope, height takes priority
+        length = (height * self.step_length) / self.step_height
 
         ramp = OrderedDict()
-        next_solid_id = max_solid_id + 1
-        ramp['id'] = next_solid_id
+        ramp['id'] = max_solid_id + 1 # give ids that won't collide
 
-        side = []
-
+        sides = []
         bottom_side = OrderedDict()
-        next_side_id += 1
-        bottom_side['id'] = next_side_id
-        if orientation % 2 == 0:
-            bottom_side['plane'] = self.combine_coord_list([
-                (back, right, bottom),
-                (back, left, bottom),
-                (front, left, bottom)])
-        else:
-            bottom_side['plane'] = self.combine_coord_list([
-                (right, back, bottom),
-                (left, back, bottom),
-                (left, front, bottom)])
-        self.set_to_defaults(bottom_side)
-        side.append(bottom_side)
-
+        bottom_side['*plane'] = [
+            (0, width, 0),
+            (0, 0, 0),
+            (length, 0, 0)]
+        sides.append(bottom_side)
         back_side = OrderedDict()
-        next_side_id += 1
-        back_side['id'] = next_side_id
-        if orientation % 2 == 0:
-            back_side['plane'] = self.combine_coord_list([
-                (back, left, bottom),
-                (back, right, bottom),
-                (back, right, top)])
-        else:
-            back_side['plane'] = self.combine_coord_list([
-                (left, back, bottom),
-                (right, back, bottom),
-                (right, back, top)])
-        self.set_to_defaults(back_side)
-        side.append(back_side)
-
+        back_side['*plane'] = [
+            (0, 0, 0),
+            (0, width, 0),
+            (0, width, height)]
+        sides.append(back_side)
         right_side = OrderedDict()
-        next_side_id += 1
-        right_side['id'] = next_side_id
-        if orientation % 2 == 0:
-            right_side['plane'] = self.combine_coord_list([
-                (back, right, bottom),
-                (front, right, bottom),
-                (back, right, top)])
-        else:
-            right_side['plane'] = self.combine_coord_list([
-                (right, back, bottom),
-                (right, front, bottom),
-                (right, back, top)])
-        self.set_to_defaults(right_side)
-        side.append(right_side)
-
+        right_side['*plane'] = [
+            (0, width, 0),
+            (length, width, 0),
+            (0, width, height)]
+        sides.append(right_side)
         left_side = OrderedDict()
-        next_side_id += 1
-        left_side['id'] = next_side_id
-        if orientation % 2 == 0:
-            left_side['plane'] = self.combine_coord_list([
-                (front, left, bottom),
-                (back, left, bottom),
-                (back, left, top)])
-        else:
-            left_side['plane'] = self.combine_coord_list([
-                (left, front, bottom),
-                (left, back, bottom),
-                (left, back, top)])
-        self.set_to_defaults(left_side)
-        side.append(left_side)
-
+        left_side['*plane'] = [
+            (length, 0, 0),
+            (0, 0, 0),
+            (0, 0, height)]
+        sides.append(left_side)
         slope_side = OrderedDict()
-        next_side_id += 1
-        slope_side['id'] = next_side_id
-        if orientation % 2 == 0:
-            slope_side['plane'] = self.combine_coord_list([
-                (back, left, top),
-                (back, right, top),
-                (front, right, bottom)])
-        else:
-            slope_side['plane'] = self.combine_coord_list([
-                (left, back, top),
-                (right, back, top),
-                (right, front, bottom)])
-        self.set_to_defaults(slope_side)
-        side.append(slope_side)
+        slope_side['*plane'] = [
+            (0, 0, height),
+            (0, width, height),
+            (length, width, 0)]
+        sides.append(slope_side)
 
-        ramp['side'] = side
+        # transform points
+        print "Transforming ramp position"
+        for side in sides:
+            for i, point in enumerate(side['*plane']):
+                # rotate
+                point = self.rotate(point, orientation)
+                # translate
+                point = self.translate(point, reg_point)
+                side['*plane'][i] = point
+
+        # add other side info (id, default material)
+        for i, side in enumerate(sides):
+            side['id'] = max_side_id + i + 1
+            side['plane'] = self.combine_coord_list(side['*plane'])
+            self.set_to_defaults(side)
+
+        # get rid of tuple data because it will fuck with iteritems :(
+        for side in sides:
+            del side['*plane']
+
+        ramp['side'] = sides
         ramp['editor'] = self.editor
         solids.append(ramp)
+
+    def rotate(self, point, orientation):
+        if orientation == 0:
+            rot_matrix = matrix(identity(3))
+        elif orientation == 1:
+            rot_matrix = matrix([
+                [0, 1, 0],
+                [-1, 0, 0],
+                [0, 0, 1]])
+        elif orientation == 2:
+            rot_matrix = matrix([
+                [-1, 0, 0],
+                [0, -1, 0],
+                [0, 0, 1]])
+        elif orientation == 3:
+            rot_matrix = matrix([
+                [0, -1, 0],
+                [1, 0, 0],
+                [0, 0, 1]])
+        point = matrix(point) * rot_matrix
+        return tuple(point.tolist()[0])
+
+    def translate(self, point, reg_point):
+        return tuple([sum(i) for i in zip(point, reg_point)])
 
     def set_to_defaults(self, side):
         side['material'] = self.material
@@ -241,9 +234,9 @@ class StairGenerator():
         side['lightmapscale'] = self.lightmapscale
         side['smoothing_groups'] = self.smoothing_groups
 
-    def get_bounds(self, sides):
-        """Finds the bounds of a template brush and returns a tuple of the form
-        (front, back, left, right, top, bottom)"""
+    def get_reg_point_dims(self, sides):
+        """Finds the registration point, dimensions, and orientation of a
+        template brush."""
         # identify the front face
         front_face = [side for side in sides if side['material'] ==
             'SIGNS/STAIRS_RED'][0]
@@ -294,7 +287,18 @@ class StairGenerator():
             orientation = 3
         else:
             raise Exception('Template has bad normal')
-        return (front, back, left, right, top, bottom), orientation
+
+        # registration point is origin in local coords
+        if orientation % 2 == 0:
+            reg_point = (back, left, bottom)
+        else:
+            reg_point = (left, back, bottom)
+        # calculate dimensions
+        length = abs(front - back)
+        width = abs(left - right)
+        height = top - bottom
+
+        return reg_point, (length, width, height), orientation
 
     def find_max_dir(self, coords, max_dir):
         """Finds the maximum coordinate in a given direction of a set of 3D
@@ -316,7 +320,7 @@ class StairGenerator():
 
     def add_normals(self, sides):
         """Given a list of vmf side dicts, adds normals to each side under
-        ['*normals']."""
+        ['*normal']."""
         for side in sides:
             # figure out direction of normal
             coords = [array(coord) for coord in
@@ -338,7 +342,7 @@ class StairGenerator():
         templates = []
         solids = self.vmf_dict['world']['solid']
         if type(solids) is not list:
-            raise Exception("Can't deal with single-brush vmfs yet")
+            solids = [solids]
         for solid in solids:
             materials = []
             all_sides_ortho = True
@@ -362,7 +366,8 @@ class StairGenerator():
             else:
                 return False
         # Only return for brushes textured all in skip except for one in
-        # stairs_red
+        # stairs_red, this doesn't invalidate brushes with top or bottom in
+        # stairs because we'll look at normals later
         return (skip_count, stairs_count) == (5, 1)
 
     def side_ortho(self, side):
@@ -379,7 +384,7 @@ class StairGenerator():
         # zero width or height)
 
     def parse_coord_list(self, coords):
-        """Breaks up the vmf syntax for 3 sets of coordinates into Python data
+        """Breaks up the vmf syntax for a set of 3 coordinates into Python data
         types"""
         return [tuple([float(num) for num in coord.split(' ')]) for coord in
             coords[0:-1].replace('(', '').split(') ')]
